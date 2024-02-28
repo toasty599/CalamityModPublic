@@ -1,8 +1,9 @@
 ﻿using CalamityMod.Buffs.StatDebuffs;
-using CalamityMod.DataStructures;
+using CalamityMod.Particles;
 using Microsoft.Xna.Framework;
 using System;
 using Terraria;
+using Terraria.Audio;
 using Terraria.ID;
 using Terraria.ModLoader;
 namespace CalamityMod.Projectiles.Magic
@@ -10,12 +11,12 @@ namespace CalamityMod.Projectiles.Magic
     public class DustProjectile : ModProjectile, ILocalizedModType
     {
         public new string LocalizationCategory => "Projectiles.Magic";
-        public override void SetStaticDefaults()
-        {
-            Main.projFrames[Projectile.type] = 6;
-            ProjectileID.Sets.TrailCacheLength[Projectile.type] = 10;
-            ProjectileID.Sets.TrailingMode[Projectile.type] = 2;
-        }
+
+        public ref float Timer => ref Projectile.ai[0];
+
+        public Player Owner => Main.player[Projectile.owner];
+
+        public override string Texture => "CalamityMod/Projectiles/InvisibleProj";
 
         public override void SetDefaults()
         {
@@ -29,75 +30,98 @@ namespace CalamityMod.Projectiles.Magic
             Projectile.MaxUpdates = 4;
             Projectile.timeLeft = 30 * Projectile.MaxUpdates; // 30 effectively, 120 total
             Projectile.usesLocalNPCImmunity = true;
-            Projectile.localNPCHitCooldown = 10 * Projectile.MaxUpdates; // 10 effective, 40 total
+            Projectile.localNPCHitCooldown = 13 * Projectile.MaxUpdates; // 13 effective, 52 total
         }
 
         public override void AI()
         {
             Lighting.AddLight(Projectile.Center, 0.5f, 0.4f, 0.01f);
-            Projectile.frameCounter++;
-            if (Projectile.frameCounter > 6)
-            {
-                Projectile.frame++;
-                Projectile.frameCounter = 0;
-            }
-            if (Projectile.frame >= Main.projFrames[Projectile.type])
-            {
-                Projectile.frame = 0;
-            }
-            Projectile.rotation += (Math.Abs(Projectile.velocity.X) + Math.Abs(Projectile.velocity.Y)) * 0.01f * (float)Projectile.direction;
-            if (Projectile.ai[0] > 7f)
-            {
-                int dustType = 22;
-                int idx = Dust.NewDust(Projectile.position, Projectile.width, Projectile.height, dustType, Projectile.velocity.X * 0.2f, Projectile.velocity.Y * 0.2f, 100, default, 1f);
-                Dust dust = Main.dust[idx];
-                if (Main.rand.NextBool(3))
-                {
-                    dust.noGravity = true;
-                    dust.scale *= 2f;
-                    dust.velocity.X *= 3f;
-                    dust.velocity.Y *= 3f;
-                }
-                dust.velocity.X *= 1.5f;
-                dust.velocity.Y *= 1.5f;
-            }
-            Projectile.ai[0] += 1f;
-            Projectile.rotation += 0.3f * (float)Projectile.direction;
+
+            if (!Main.dedServ)
+                DoDustVFX();
+
+            Projectile.velocity *= 0.995f;
+            Projectile.rotation += 0.3f * Projectile.direction;
+
+            // Fade out.
             if (Projectile.timeLeft < 5)
                 Projectile.Opacity = MathHelper.Lerp(0f, 1f, (float)Projectile.timeLeft / 5f);
+
+            Timer++;
         }
 
-        public override void OnHitNPC(NPC target, NPC.HitInfo hit, int damageDone) => target.AddBuff(ModContent.BuffType<ArmorCrunch>(), 180);
+        public void DoDustVFX()
+        {
+            // Closer to death = less intense.
+            float lifetimeScalar = MathHelper.Clamp(Projectile.timeLeft / 80f, 0f, 1f);
+            for (int i = 0; i < 2; i++)
+            {
+                Color sandColor = Color.Lerp(Color.Lerp(Color.SandyBrown, Color.SaddleBrown, Main.rand.NextFloat(0.2f, 0.8f)), Color.DimGray, Main.rand.NextFloat(0f, 0.3f));
+                var sandCloud = new SandCloud(Projectile.Center + Main.rand.NextVector2Circular(30f, 30f), Projectile.velocity * Main.rand.NextFloat(0.7f, 0.9f),
+                    sandColor, Main.rand.NextFloat(1.3f, 2.3f) * lifetimeScalar, Main.rand.Next(7, 15), Main.rand.NextFloat(-0.05f, 0.05f), 0.13f,true);
 
-        public override void OnHitPlayer(Player target, Player.HurtInfo info) => target.AddBuff(ModContent.BuffType<ArmorCrunch>(), 180);
+                GeneralParticleHandler.SpawnParticle(sandCloud);
+            }
+            if (Timer % 15f == 0f)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    var sandDust = new SandyDustParticle(Projectile.Center + Main.rand.NextVector2Circular(23f, 23f), Projectile.velocity.RotatedBy(Main.rand.NextFloat(-0.5f, 0.5f)) *
+                        Main.rand.NextFloat(1.3f, 2f), Color.White, Main.rand.NextFloat(0.4f, 1.4f) * MathHelper.Clamp(lifetimeScalar * 2f, 0f, 1f), Main.rand.Next(20, 50));
+                    GeneralParticleHandler.SpawnParticle(sandDust);
+                }
+            }
+        }
+
+        public override void OnHitNPC(NPC target, NPC.HitInfo hit, int damageDone)
+        {
+            target.AddBuff(ModContent.BuffType<ArmorCrunch>(), 180);
+            OnHitFX(target);
+        }
+
+        public override void OnHitPlayer(Player target, Player.HurtInfo info)
+        {
+            target.AddBuff(ModContent.BuffType<ArmorCrunch>(), 180);
+            OnHitFX(target);
+        }
+
+        public void OnHitFX(Entity target)
+        {
+            Projectile.velocity *= 0.45f;
+
+            // Custom sound would be nicer but this suffices.
+            SoundEngine.PlaySound(SoundID.DD2_ExplosiveTrapExplode with { Pitch = -0.6f, PitchVariance = 1f }, target.Center);
+            Owner.Calamity().GeneralScreenShakePower = 1f;
+
+            // Closer to death = less intense.
+            float lifetimeScalar = MathHelper.Clamp(Projectile.timeLeft / 80f, 0f, 1f);
+
+            for (int i = 0; i < 5; i++)
+            {
+                Vector2 velocity;
+                if (i <= 2)
+                    velocity = Vector2.UnitY.RotatedBy(Main.rand.NextFloat(-0.6f, 0.6f)) * Main.rand.NextFloat(-7.3f, -2.5f);
+                else
+                    velocity = Vector2.UnitY.RotatedBy(Main.rand.NextFloat(MathF.Tau)) * Main.rand.NextFloat(-4.3f, -2.5f);
+
+                Particle rock = new StoneDebrisParticle(Main.rand.NextVector2FromRectangle(target.Hitbox), velocity * MathHelper.Lerp(0.5f, 1f, lifetimeScalar),
+                    Color.SandyBrown, Main.rand.NextFloat(0.6f, 1.2f) * MathHelper.Lerp(0.2f, 1f, lifetimeScalar), 45, Main.rand.NextFloat(-0.05f, 0.05f));
+                GeneralParticleHandler.SpawnParticle(rock);
+            }
+
+            for (int i = 0; i < 13; i++)
+            {
+                Vector2 sandPosition = Main.rand.NextVector2FromRectangle(target.Hitbox);
+                Color sandColor = Color.Lerp(Color.SandyBrown, Color.SaddleBrown, Main.rand.NextFloat(0.2f, 0.8f));
+                var sandCloud = new SandCloud(sandPosition, Vector2.UnitY.RotatedBy(Main.rand.NextFloat(MathF.Tau)) * Main.rand.NextFloat(1.3f, 3.9f),
+                    sandColor, Main.rand.NextFloat(1.3f, 2.3f) * MathHelper.Lerp(0.25f, 0.8f, lifetimeScalar), Main.rand.Next(20, 30), Main.rand.NextFloat(-0.05f, 0.05f), 0.6f * lifetimeScalar, true);
+
+                GeneralParticleHandler.SpawnParticle(sandCloud);
+            }
+        }
 
         public override bool? CanDamage() => Projectile.timeLeft > 5;
 
-        public override bool PreDraw(ref Color lightColor)
-        {
-            CalamityUtils.DrawAfterimagesCentered(Projectile, ProjectileID.Sets.TrailingMode[Projectile.type], lightColor, 1);
-
-            // Dust effects
-            Circle dustCircle = new Circle(Projectile.Center, Projectile.width / 2);
-
-            for (int i = 0; i < 20; i++)
-            {
-                // Dust
-                Vector2 dustPos = dustCircle.RandomPointInCircle();
-                if ((dustPos - Projectile.Center).Length() > 48)
-                {
-                    int dustIndex = Dust.NewDust(dustPos, 1, 1, 22);
-                    Main.dust[dustIndex].noGravity = true;
-                    Main.dust[dustIndex].fadeIn = 1f;
-                    Vector2 dustVelocity = Projectile.Center - Main.dust[dustIndex].position;
-                    float distToCenter = dustVelocity.Length();
-                    dustVelocity.Normalize();
-                    dustVelocity = dustVelocity.RotatedBy(MathHelper.ToRadians(-90f));
-                    dustVelocity *= distToCenter * 0.04f;
-                    Main.dust[dustIndex].velocity = dustVelocity;
-                }
-            }
-            return false;
-        }
+        public override bool PreDraw(ref Color lightColor) => false;
     }
 }

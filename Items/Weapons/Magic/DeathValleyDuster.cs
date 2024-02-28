@@ -26,7 +26,7 @@ namespace CalamityMod.Items.Weapons.Magic
             Item.UseSound = SoundID.Item20;
             Item.autoReuse = true;
             Item.shoot = ModContent.ProjectileType<DustProjectile>();
-            Item.shootSpeed = 5f;
+            Item.shootSpeed = 9f;
         }
 
         public override void AddRecipes()
