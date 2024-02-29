@@ -45,7 +45,7 @@ namespace CalamityMod.Projectiles.Magic
 
             // Fade out.
             if (Projectile.timeLeft < 5)
-                Projectile.Opacity = MathHelper.Lerp(0f, 1f, (float)Projectile.timeLeft / 5f);
+                Projectile.Opacity = MathHelper.Lerp(0f, 1f, Projectile.timeLeft / 5f);
 
             Timer++;
         }

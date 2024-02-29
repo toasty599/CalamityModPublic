@@ -24,8 +24,9 @@ namespace CalamityMod.Items.Weapons.Magic
             Item.rare = ItemRarityID.Yellow;
             Item.UseSound = SoundID.Item20;
             Item.autoReuse = true;
-            Item.shoot = ModContent.ProjectileType<SupremeDustProjectile>();
-            Item.shootSpeed = 4f;
+            Item.shoot = ModContent.ProjectileType<PrimordialEarthHoldout>();
+            Item.shootSpeed = 12f;
+            Item.channel = true;
         }
 
         public override void AddRecipes()
