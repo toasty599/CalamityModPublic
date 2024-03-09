@@ -3,13 +3,17 @@ using CalamityMod.CalPlayer;
 using CalamityMod.Events;
 using CalamityMod.NPCs;
 using CalamityMod.NPCs.SupremeCalamitas;
+using CalamityMod.Particles;
 using CalamityMod.World;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using ReLogic.Content;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using Terraria;
 using Terraria.Audio;
+using Terraria.Graphics.Effects;
 using Terraria.ID;
 using Terraria.ModLoader;
 
@@ -37,6 +41,10 @@ namespace CalamityMod.Projectiles.Boss
             Projectile.timeLeft = 36000;
             Projectile.Opacity = 0f;
             CooldownSlot = ImmunityCooldownID.Bosses;
+
+            // Used to offset the VFX to prevent all 4 looking identical.
+            if (Main.netMode != NetmodeID.Server)
+                Projectile.localAI[1] = Main.rand.NextFloat(MathHelper.TwoPi);
         }
 
         public override void SendExtraAI(BinaryWriter writer)
@@ -85,6 +93,30 @@ namespace CalamityMod.Projectiles.Boss
                     default:
                         break;
                 }
+            }
+
+            if (Main.rand.NextBool(15))
+            {
+                Vector2 position;
+                Vector2 velocity;
+                int lifetime;
+                // Escaping the vortex.
+                if (Main.rand.NextBool(3))
+                {
+                    position = Projectile.Center + Main.rand.NextVector2Circular(10f, 10f);
+                    velocity = Main.rand.NextFloat(MathHelper.TwoPi).ToRotationVector2() * 2.5f + Projectile.velocity;
+                    lifetime = Main.rand.Next(60, 120);
+                }
+                // Being sucked in.
+                else
+                {
+                    position = Projectile.Center + Main.rand.NextVector2CircularEdge(200f, 200f);
+                    lifetime = Main.rand.Next(40, 70);
+                    velocity = position.DirectionTo(Projectile.Center) * (position - Projectile.Center).Length() / lifetime + Projectile.velocity;
+
+                }
+                var soul = new BrimstoneSoul(position, velocity, Color.White, Main.rand.NextFloat(0.2f, 0.8f), lifetime);
+                GeneralParticleHandler.SpawnParticle(soul);
             }
 
             if (speedAdd < speedLimit)
@@ -166,22 +198,54 @@ namespace CalamityMod.Projectiles.Boss
 
         public override bool PreDraw(ref Color lightColor)
         {
-            Texture2D tex = ModContent.Request<Texture2D>(Texture).Value;
-            lightColor.R = (byte)(255 * Projectile.Opacity);
-
-            if (CalamityGlobalNPC.SCal != -1)
+            if (CalamityGlobalNPC.SCal != -1 && Main.npc[CalamityGlobalNPC.SCal].active && Main.npc[CalamityGlobalNPC.SCal].ModNPC<SupremeCalamitas>().cirrus)
             {
-                if (Main.npc[CalamityGlobalNPC.SCal].active)
-                {
-                    if (Main.npc[CalamityGlobalNPC.SCal].ModNPC<SupremeCalamitas>().cirrus)
-                    {
-                        tex = ModContent.Request<Texture2D>("CalamityMod/Projectiles/Boss/BrimstoneMonsterII").Value;
-                        lightColor.B = (byte)(255 * Projectile.Opacity);
-                    }
-                }
+                Texture2D tex = ModContent.Request<Texture2D>("CalamityMod/Projectiles/Boss/BrimstoneMonsterII").Value;
+                lightColor.R = (byte)(255 * Projectile.Opacity);
+                lightColor.B = (byte)(255 * Projectile.Opacity);
+                Main.EntitySpriteDraw(tex, Projectile.Center - Main.screenPosition, null, Projectile.GetAlpha(lightColor), Projectile.rotation, tex.Size() / 2f, Projectile.scale, SpriteEffects.None, 0);
+                return false;
             }
 
-            Main.EntitySpriteDraw(tex, Projectile.Center - Main.screenPosition, null, Projectile.GetAlpha(lightColor), Projectile.rotation, tex.Size() / 2f, Projectile.scale, SpriteEffects.None, 0);
+            Asset<Texture2D> invis = ModContent.Request<Texture2D>("CalamityMod/Projectiles/InvisibleProj");
+
+            var effect = Filters.Scene["CalamityMod:SoulVortexShader"].GetShader().Shader;//CalamityShaders.SoulVortexShader;
+            effect.Parameters["time"]?.SetValue(Main.GlobalTimeWrappedHourly);
+            effect.Parameters["timeOffset"]?.SetValue(Projectile.localAI[1]);
+            effect.Parameters["opacity"]?.SetValue(Projectile.Opacity);
+            effect.Parameters["screenSize"]?.SetValue(Main.ScreenSize.ToVector2());
+            effect.Parameters["eyeNoiseColor"]?.SetValue(Color.Magenta.ToVector3());
+            var baseColor = Color.Lerp(new Color(227, 79, 79), Color.Crimson, 0.8f);
+            var highlightColor = Color.Lerp(new Color(250, 202, 140), Color.Crimson, 0.2f);
+            effect.Parameters["edgeNoiseColor1"]?.SetValue(baseColor.ToVector3());
+            effect.Parameters["edgeNoiseColor2"]?.SetValue(highlightColor.ToVector3());
+
+            Main.instance.GraphicsDevice.Textures[1] = ModContent.Request<Texture2D>("CalamityMod/Projectiles/Boss/BrimstoneMonsterSouls").Value;//ModContent.Request<Texture2D>("CalamityMod/Graphics/Metaballs/GruesomeEminence_Ghost_Layer1").Value;
+            Main.instance.GraphicsDevice.Textures[2] = ModContent.Request<Texture2D>("CalamityMod/Projectiles/Boss/BrimstoneMonsterEyes").Value;
+            Main.instance.GraphicsDevice.Textures[3] = ModContent.Request<Texture2D>("CalamityMod/ExtraTextures/GreyscaleGradients/FrozenCrust").Value;
+            Main.instance.GraphicsDevice.Textures[4] = ModContent.Request<Texture2D>("CalamityMod/ExtraTextures/GreyscaleGradients/HarshNoise").Value;
+
+            // These don't seem to be properly set else, so set them here.
+            Main.instance.GraphicsDevice.SamplerStates[2] = SamplerState.PointWrap;
+            Main.instance.GraphicsDevice.SamplerStates[3] = SamplerState.PointWrap;
+            Main.instance.GraphicsDevice.SamplerStates[4] = SamplerState.PointWrap;
+
+            Main.spriteBatch.End();
+            Main.spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, effect, Main.GameViewMatrix.TransformationMatrix);
+            Main.spriteBatch.Draw(invis.Value, Projectile.Center - Main.screenPosition, null, Color.White, 0f, invis.Size() * 0.5f, 450f, SpriteEffects.None, 0f);
+            Main.spriteBatch.End();
+            Main.spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+
+            // Draw a star in the middle of the vortex.
+            Texture2D bloomTexture = ModContent.Request<Texture2D>("CalamityMod/Particles/BloomCircle").Value;
+            Texture2D sparkTexture = ModContent.Request<Texture2D>("CalamityMod/Particles/Sparkle").Value;
+            float properBloomSize = (float)sparkTexture.Height / bloomTexture.Height;
+            Vector2 squish = Vector2.One * Projectile.Opacity;
+
+            Main.spriteBatch.Draw(bloomTexture, Projectile.Center - Main.screenPosition, null, Color.Lerp(Color.DarkMagenta, Color.Crimson, 0.3f) * 0.65f, 0, bloomTexture.Size() / 2f, squish * 4f * properBloomSize, SpriteEffects.None, 0);
+            Main.spriteBatch.Draw(sparkTexture, Projectile.Center - Main.screenPosition, null, Color.Lerp(Color.White, Color.Crimson, 0.3f), Main.GlobalTimeWrappedHourly * 2f, sparkTexture.Size() / 2f, squish * MathHelper.Lerp(0.66f, 1f, (1f + MathF.Sin((float)Main.timeForVisualEffects * 0.4f)) * 0.5f), SpriteEffects.None, 0);
+
+            Main.spriteBatch.ExitShaderRegion();
             return false;
         }
 

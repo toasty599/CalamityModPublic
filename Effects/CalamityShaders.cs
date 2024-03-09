@@ -183,13 +183,18 @@ namespace CalamityMod.Effects
 
         //
         // All below shaders were added or created by Amber
-        // Authorship for the PrimitiveClearShader goes to Toasty
         //
-
         #region Amber's Shaders
-        internal static Effect PrimitiveClearShader;
         internal static Effect HolyInfernoShader;
         internal static Effect DeerclopsShadowShader;
+        #endregion
+
+        //
+        // All below shaders created by Toasty
+        //
+        #region Toasty's Shaders
+        internal static Effect PrimitiveClearShader;
+        internal static Effect SoulVortexShader;
         #endregion
 
         // Shorthand to register a loaded shader in Terraria's graphics engine
@@ -396,15 +401,20 @@ namespace CalamityMod.Effects
             #endregion
 
             #region Loading Amber's Shaders
-            PrimitiveClearShader = LoadShader("PrimitiveClearShader");
-            RegisterScreenShader(PrimitiveClearShader, "AutoloadPass", "PrimitiveClearShader");
-
             HolyInfernoShader = LoadShader("ScreenShaders/HolyInfernoShader");
             RegisterMiscShader(HolyInfernoShader, "InfernoPass", "HolyInfernoShader");
 
             DeerclopsShadowShader = LoadShader("ScreenShaders/DeerclopsShadowShader");
             RegisterMiscShader(DeerclopsShadowShader, "ShadowPass", "DeerclopsShadowShader");
 
+            #endregion
+
+            #region Loading Toasty's Shaders
+            PrimitiveClearShader = LoadShader("PrimitiveClearShader");
+            RegisterScreenShader(PrimitiveClearShader, "AutoloadPass", "PrimitiveClearShader");
+
+            SoulVortexShader = LoadShader("SoulVortexShader");
+            RegisterScreenShader(SoulVortexShader, "AutoloadPass", "SoulVortexShader");
             #endregion
         }
     }
